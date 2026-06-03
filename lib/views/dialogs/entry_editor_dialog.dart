@@ -33,6 +33,7 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
   late final TextEditingController _twoFactorController;
   late final TextEditingController _tagsController;
   late final TextEditingController _notesController;
+  late final List<_EditableCustomField> _customFields;
   bool _showPassword = false;
   String? _error;
 
@@ -51,6 +52,14 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
     _twoFactorController = TextEditingController(text: entry.twoFactorNotes);
     _tagsController = TextEditingController(text: entry.tags);
     _notesController = TextEditingController(text: entry.notes);
+    _customFields = entry.customFields
+        .map(
+          (field) => _EditableCustomField(
+            labelController: TextEditingController(text: field.label),
+            valueController: TextEditingController(text: field.value),
+          ),
+        )
+        .toList();
   }
 
   @override
@@ -66,6 +75,9 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
     _twoFactorController.dispose();
     _tagsController.dispose();
     _notesController.dispose();
+    for (final field in _customFields) {
+      field.dispose();
+    }
     super.dispose();
   }
 
@@ -77,6 +89,23 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
     if (_passwordController.text.isEmpty) {
       setState(() => _error = 'Password is required.');
       return;
+    }
+
+    final customFields = <VaultCustomField>[];
+    for (final field in _customFields) {
+      final label = field.labelController.text.trim();
+      final value = field.valueController.text.trim();
+      final hasAnyValue = label.isNotEmpty || value.isNotEmpty;
+      final isComplete = label.isNotEmpty && value.isNotEmpty;
+
+      if (hasAnyValue && !isComplete) {
+        setState(() => _error = 'Custom fields need a name and value.');
+        return;
+      }
+
+      if (isComplete) {
+        customFields.add(VaultCustomField(label: label, value: value));
+      }
     }
 
     final original = widget.entry ?? VaultEntry.blank();
@@ -92,6 +121,7 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
       twoFactorNotes: _twoFactorController.text.trim(),
       tags: _tagsController.text.trim(),
       notes: _notesController.text.trim(),
+      customFields: customFields,
       updatedAt: DateTime.now(),
     );
 
@@ -103,6 +133,26 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
     setState(() {
       _passwordController.text = password;
       _showPassword = true;
+      _error = null;
+    });
+  }
+
+  void _addCustomField() {
+    setState(() {
+      _customFields.add(
+        _EditableCustomField(
+          labelController: TextEditingController(),
+          valueController: TextEditingController(),
+        ),
+      );
+      _error = null;
+    });
+  }
+
+  void _removeCustomField(int index) {
+    setState(() {
+      final field = _customFields.removeAt(index);
+      field.dispose();
       _error = null;
     });
   }
@@ -195,6 +245,33 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
                 minLines: 3,
                 maxLines: 5,
               ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Custom Fields',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _addCustomField,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Field'),
+                  ),
+                ],
+              ),
+              if (_customFields.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                for (var index = 0; index < _customFields.length; index++) ...[
+                  _CustomFieldEditorRow(
+                    field: _customFields[index],
+                    onRemove: () => _removeCustomField(index),
+                  ),
+                  if (index != _customFields.length - 1)
+                    const SizedBox(height: 10),
+                ],
+              ],
               if (_error != null) ...[
                 const SizedBox(height: 12),
                 Align(
@@ -224,5 +301,55 @@ class _EntryEditorDialogState extends State<EntryEditorDialog> {
         ),
       ],
     );
+  }
+}
+
+class _CustomFieldEditorRow extends StatelessWidget {
+  const _CustomFieldEditorRow({required this.field, required this.onRemove});
+
+  final _EditableCustomField field;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: TextInput(
+            label: 'Field Name',
+            controller: field.labelController,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: TextInput(label: 'Value', controller: field.valueController),
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message: 'Remove field',
+          child: IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.delete_outline),
+            color: AppColors.danger,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EditableCustomField {
+  const _EditableCustomField({
+    required this.labelController,
+    required this.valueController,
+  });
+
+  final TextEditingController labelController;
+  final TextEditingController valueController;
+
+  void dispose() {
+    labelController.dispose();
+    valueController.dispose();
   }
 }

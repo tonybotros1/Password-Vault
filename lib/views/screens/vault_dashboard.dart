@@ -17,6 +17,7 @@ class VaultDashboard extends StatelessWidget {
     required this.onAddEntry,
     required this.onEditEntry,
     required this.onDeleteEntry,
+    required this.onTogglePin,
     required this.onCopyValue,
     required this.onExportBackup,
     required this.onImportBackup,
@@ -32,6 +33,7 @@ class VaultDashboard extends StatelessWidget {
   final VoidCallback onAddEntry;
   final ValueChanged<VaultEntry> onEditEntry;
   final ValueChanged<VaultEntry> onDeleteEntry;
+  final ValueChanged<VaultEntry> onTogglePin;
   final Future<void> Function(String label, String value) onCopyValue;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
@@ -69,6 +71,8 @@ class VaultDashboard extends StatelessWidget {
                               entries: entries,
                               selectedEntry: selectedEntry,
                               onSelectEntry: onSelectEntry,
+                              onDeleteEntry: onDeleteEntry,
+                              onTogglePin: onTogglePin,
                             ),
                           ),
                           const SizedBox(height: 14),
@@ -77,6 +81,7 @@ class VaultDashboard extends StatelessWidget {
                               entry: selectedEntry,
                               onEdit: onEditEntry,
                               onDelete: onDeleteEntry,
+                              onTogglePin: onTogglePin,
                               onCopy: onCopyValue,
                             ),
                           ),
@@ -93,6 +98,8 @@ class VaultDashboard extends StatelessWidget {
                             entries: entries,
                             selectedEntry: selectedEntry,
                             onSelectEntry: onSelectEntry,
+                            onDeleteEntry: onDeleteEntry,
+                            onTogglePin: onTogglePin,
                           ),
                         ),
                         const SizedBox(width: 18),
@@ -101,6 +108,7 @@ class VaultDashboard extends StatelessWidget {
                             entry: selectedEntry,
                             onEdit: onEditEntry,
                             onDelete: onDeleteEntry,
+                            onTogglePin: onTogglePin,
                             onCopy: onCopyValue,
                           ),
                         ),
@@ -211,11 +219,15 @@ class _EntryList extends StatelessWidget {
     required this.entries,
     required this.selectedEntry,
     required this.onSelectEntry,
+    required this.onDeleteEntry,
+    required this.onTogglePin,
   });
 
   final List<VaultEntry> entries;
   final VaultEntry? selectedEntry;
   final ValueChanged<VaultEntry> onSelectEntry;
+  final ValueChanged<VaultEntry> onDeleteEntry;
+  final ValueChanged<VaultEntry> onTogglePin;
 
   @override
   Widget build(BuildContext context) {
@@ -245,6 +257,8 @@ class _EntryList extends StatelessWidget {
                   entry: entry,
                   selected: entry.id == selectedEntry?.id,
                   onTap: () => onSelectEntry(entry),
+                  onDelete: () => onDeleteEntry(entry),
+                  onTogglePin: () => onTogglePin(entry),
                 );
               },
             ),
@@ -257,11 +271,15 @@ class _EntryListItem extends StatelessWidget {
     required this.entry,
     required this.selected,
     required this.onTap,
+    required this.onDelete,
+    required this.onTogglePin,
   });
 
   final VaultEntry entry;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
+  final VoidCallback onTogglePin;
 
   @override
   Widget build(BuildContext context) {
@@ -301,10 +319,29 @@ class _EntryListItem extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Icon(
-                    Icons.chevron_right,
-                    size: 18,
-                    color: AppColors.muted,
+                  Tooltip(
+                    message: entry.isPinned ? 'Unpin' : 'Pin',
+                    child: IconButton(
+                      onPressed: onTogglePin,
+                      visualDensity: VisualDensity.compact,
+                      icon: Icon(
+                        entry.isPinned
+                            ? Icons.push_pin
+                            : Icons.push_pin_outlined,
+                      ),
+                      color: entry.isPinned
+                          ? AppColors.accent
+                          : AppColors.muted,
+                    ),
+                  ),
+                  Tooltip(
+                    message: 'Delete',
+                    child: IconButton(
+                      onPressed: onDelete,
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.delete_outline),
+                      color: AppColors.muted,
+                    ),
                   ),
                 ],
               ),
@@ -320,7 +357,17 @@ class _EntryListItem extends StatelessWidget {
               ),
               if (entry.category.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                MetaPill(label: entry.category),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (entry.isPinned) const MetaPill(label: 'Pinned'),
+                    MetaPill(label: entry.category),
+                  ],
+                ),
+              ] else if (entry.isPinned) ...[
+                const SizedBox(height: 8),
+                const MetaPill(label: 'Pinned'),
               ],
             ],
           ),
@@ -335,12 +382,14 @@ class _EntryDetails extends StatefulWidget {
     required this.entry,
     required this.onEdit,
     required this.onDelete,
+    required this.onTogglePin,
     required this.onCopy,
   });
 
   final VaultEntry? entry;
   final ValueChanged<VaultEntry> onEdit;
   final ValueChanged<VaultEntry> onDelete;
+  final ValueChanged<VaultEntry> onTogglePin;
   final Future<void> Function(String label, String value) onCopy;
 
   @override
@@ -399,6 +448,8 @@ class _EntryDetailsState extends State<_EntryDetails> {
                               spacing: 8,
                               runSpacing: 8,
                               children: [
+                                if (entry.isPinned)
+                                  const MetaPill(label: 'Pinned'),
                                 if (entry.category.isNotEmpty)
                                   MetaPill(label: entry.category),
                                 MetaPill(label: _updatedLabel(entry.updatedAt)),
@@ -408,6 +459,14 @@ class _EntryDetailsState extends State<_EntryDetails> {
                         ),
                       ),
                       const SizedBox(width: 12),
+                      HeaderIconButton(
+                        tooltip: entry.isPinned ? 'Unpin' : 'Pin',
+                        icon: entry.isPinned
+                            ? Icons.push_pin
+                            : Icons.push_pin_outlined,
+                        onPressed: () => widget.onTogglePin(entry),
+                      ),
+                      const SizedBox(width: 8),
                       HeaderIconButton(
                         tooltip: 'Edit',
                         icon: Icons.edit_outlined,
@@ -445,47 +504,61 @@ class _EntryDetailsState extends State<_EntryDetails> {
                       ),
                     ),
                   ),
-                  _InfoRow(
-                    label: 'Username',
-                    value: entry.username,
-                    onCopy: widget.onCopy,
-                  ),
-                  _InfoRow(
-                    label: 'Email',
-                    value: entry.email,
-                    onCopy: widget.onCopy,
-                  ),
-                  _InfoRow(
-                    label: 'Website',
-                    value: entry.website,
-                    onCopy: widget.onCopy,
-                  ),
-                  _InfoRow(
-                    label: 'Account ID',
-                    value: entry.accountId,
-                    onCopy: widget.onCopy,
-                  ),
-                  _InfoRow(
-                    label: 'Tags',
-                    value: entry.tags,
-                    onCopy: widget.onCopy,
-                  ),
-                  _InfoRow(
-                    label: 'Recovery',
-                    value: entry.recoveryContact,
-                    onCopy: widget.onCopy,
-                  ),
-                  _InfoRow(
-                    label: 'Two-Factor',
-                    value: entry.twoFactorNotes,
-                    onCopy: widget.onCopy,
-                  ),
-                  _InfoRow(
-                    label: 'Notes',
-                    value: entry.notes,
-                    onCopy: widget.onCopy,
-                    multiline: true,
-                  ),
+                  if (entry.username.isNotEmpty)
+                    _InfoRow(
+                      label: 'Username',
+                      value: entry.username,
+                      onCopy: widget.onCopy,
+                    ),
+                  if (entry.email.isNotEmpty)
+                    _InfoRow(
+                      label: 'Email',
+                      value: entry.email,
+                      onCopy: widget.onCopy,
+                    ),
+                  if (entry.website.isNotEmpty)
+                    _InfoRow(
+                      label: 'Website',
+                      value: entry.website,
+                      onCopy: widget.onCopy,
+                    ),
+                  if (entry.accountId.isNotEmpty)
+                    _InfoRow(
+                      label: 'Account ID',
+                      value: entry.accountId,
+                      onCopy: widget.onCopy,
+                    ),
+                  if (entry.tags.isNotEmpty)
+                    _InfoRow(
+                      label: 'Tags',
+                      value: entry.tags,
+                      onCopy: widget.onCopy,
+                    ),
+                  if (entry.recoveryContact.isNotEmpty)
+                    _InfoRow(
+                      label: 'Recovery',
+                      value: entry.recoveryContact,
+                      onCopy: widget.onCopy,
+                    ),
+                  if (entry.twoFactorNotes.isNotEmpty)
+                    _InfoRow(
+                      label: 'Two-Factor',
+                      value: entry.twoFactorNotes,
+                      onCopy: widget.onCopy,
+                    ),
+                  for (final field in entry.customFields)
+                    _InfoRow(
+                      label: field.label,
+                      value: field.value,
+                      onCopy: widget.onCopy,
+                    ),
+                  if (entry.notes.isNotEmpty)
+                    _InfoRow(
+                      label: 'Notes',
+                      value: entry.notes,
+                      onCopy: widget.onCopy,
+                      multiline: true,
+                    ),
                 ],
               ),
             ),

@@ -103,6 +103,19 @@ class VaultController extends ChangeNotifier {
     _notify();
   }
 
+  Future<void> togglePin(VaultEntry entry) async {
+    final session = _requireSession();
+    final updatedEntry = entry.copyWith(
+      isPinned: !entry.isPinned,
+      updatedAt: DateTime.now(),
+    );
+
+    session.data = session.data.upsert(updatedEntry);
+    await store.save(session);
+    _selectedEntryId = updatedEntry.id;
+    _notify();
+  }
+
   Future<bool> verifyPassword(String password) {
     return store.verifyPassword(_requireSession(), password);
   }

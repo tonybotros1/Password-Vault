@@ -19,6 +19,10 @@ void main() {
       notes: 'Primary email account',
       createdAt: now,
       updatedAt: now,
+      isPinned: true,
+      customFields: const [
+        VaultCustomField(label: 'Backup Code', value: 'A1-B2-C3'),
+      ],
     );
 
     final data = VaultData(entries: [entry]);
@@ -27,6 +31,29 @@ void main() {
     expect(restored.entries, hasLength(1));
     expect(restored.entries.single.title, 'Email');
     expect(restored.entries.single.password, 'correct horse battery staple');
+    expect(restored.entries.single.isPinned, isTrue);
+    expect(restored.entries.single.customFields.single.label, 'Backup Code');
     expect(restored.entries.single.matches('authenticator'), isTrue);
+    expect(restored.entries.single.matches('a1-b2'), isTrue);
+  });
+
+  test('vault data sorts pinned entries first', () {
+    final older = DateTime(2026, 6, 1);
+    final newer = DateTime(2026, 6, 3);
+    final normal = VaultEntry.blank().copyWith(
+      id: 'normal',
+      title: 'Normal',
+      updatedAt: newer,
+    );
+    final pinned = VaultEntry.blank().copyWith(
+      id: 'pinned',
+      title: 'Pinned',
+      isPinned: true,
+      updatedAt: older,
+    );
+
+    final data = VaultData(entries: [normal]).upsert(pinned);
+
+    expect(data.entries.first.id, 'pinned');
   });
 }

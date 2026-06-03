@@ -26,6 +26,8 @@ class VaultEntry {
     required this.notes,
     required this.createdAt,
     required this.updatedAt,
+    this.isPinned = false,
+    this.customFields = const [],
   });
 
   factory VaultEntry.blank() {
@@ -70,6 +72,8 @@ class VaultEntry {
       notes: read('notes'),
       createdAt: readDate('createdAt'),
       updatedAt: readDate('updatedAt'),
+      isPinned: json['isPinned'] as bool? ?? false,
+      customFields: VaultCustomField.listFromJson(json['customFields']),
     );
   }
 
@@ -87,6 +91,8 @@ class VaultEntry {
   final String notes;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final bool isPinned;
+  final List<VaultCustomField> customFields;
 
   Map<String, dynamic> toJson() {
     return {
@@ -104,6 +110,8 @@ class VaultEntry {
       'notes': notes,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      'isPinned': isPinned,
+      'customFields': customFields.map((field) => field.toJson()).toList(),
     };
   }
 
@@ -122,6 +130,8 @@ class VaultEntry {
     String? notes,
     DateTime? createdAt,
     DateTime? updatedAt,
+    bool? isPinned,
+    List<VaultCustomField>? customFields,
   }) {
     return VaultEntry(
       id: id ?? this.id,
@@ -138,6 +148,8 @@ class VaultEntry {
       notes: notes ?? this.notes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      isPinned: isPinned ?? this.isPinned,
+      customFields: customFields ?? this.customFields,
     );
   }
 
@@ -158,9 +170,40 @@ class VaultEntry {
       twoFactorNotes,
       tags,
       notes,
+      ...customFields.expand((field) => [field.label, field.value]),
     ].join(' ').toLowerCase();
 
     return searchableText.contains(normalizedQuery);
+  }
+}
+
+class VaultCustomField {
+  const VaultCustomField({required this.label, required this.value});
+
+  factory VaultCustomField.fromJson(Map<String, dynamic> json) {
+    return VaultCustomField(
+      label: json['label'] as String? ?? '',
+      value: json['value'] as String? ?? '',
+    );
+  }
+
+  static List<VaultCustomField> listFromJson(Object? rawFields) {
+    if (rawFields is! List) {
+      return const [];
+    }
+
+    return rawFields
+        .whereType<Map<String, dynamic>>()
+        .map(VaultCustomField.fromJson)
+        .where((field) => field.label.isNotEmpty || field.value.isNotEmpty)
+        .toList();
+  }
+
+  final String label;
+  final String value;
+
+  Map<String, dynamic> toJson() {
+    return {'label': label, 'value': value};
   }
 }
 
@@ -176,7 +219,7 @@ class VaultData {
               .toList()
         : <VaultEntry>[];
 
-    entries.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    _sortEntries(entries);
 
     return VaultData(entries: entries);
   }
@@ -197,7 +240,7 @@ class VaultData {
       nextEntries[index] = entry;
     }
 
-    nextEntries.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    _sortEntries(nextEntries);
 
     return VaultData(entries: nextEntries);
   }
@@ -206,5 +249,15 @@ class VaultData {
     return VaultData(
       entries: entries.where((entry) => entry.id != id).toList(),
     );
+  }
+
+  static void _sortEntries(List<VaultEntry> entries) {
+    entries.sort((a, b) {
+      if (a.isPinned != b.isPinned) {
+        return a.isPinned ? -1 : 1;
+      }
+
+      return b.updatedAt.compareTo(a.updatedAt);
+    });
   }
 }

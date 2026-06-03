@@ -124,6 +124,15 @@ class _VaultHomePageState extends State<VaultHomePage> {
     _showMessage('Deleted');
   }
 
+  Future<void> _togglePin(VaultEntry entry) async {
+    await _controller.togglePin(entry);
+    if (!mounted) {
+      return;
+    }
+
+    _showMessage(entry.isPinned ? 'Unpinned' : 'Pinned');
+  }
+
   Future<void> _showEntryEditor({VaultEntry? entry}) async {
     final savedEntry = await EntryEditorDialog.show(context, entry: entry);
     if (savedEntry == null) {
@@ -220,6 +229,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
           },
           onDeleteEntry: (entry) {
             _deleteEntry(entry);
+          },
+          onTogglePin: (entry) {
+            _togglePin(entry);
           },
           onCopyValue: _copyValue,
           onExportBackup: () {
