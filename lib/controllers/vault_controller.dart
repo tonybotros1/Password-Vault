@@ -12,12 +12,14 @@ class VaultController extends ChangeNotifier {
   UnlockedVault? _session;
   bool _checking = true;
   bool _hasVault = false;
+  VaultRecoveryInfo? _recoveryInfo;
   bool _disposed = false;
   String _query = '';
   String? _selectedEntryId;
 
   bool get checking => _checking;
   bool get hasVault => _hasVault;
+  VaultRecoveryInfo? get recoveryInfo => _recoveryInfo;
   bool get isUnlocked => _session != null;
   String get query => _query;
   int get allEntryCount => _session?.data.entries.length ?? 0;
@@ -47,6 +49,7 @@ class VaultController extends ChangeNotifier {
 
   Future<void> loadVaultState() async {
     _hasVault = await store.hasVault();
+    _recoveryInfo = _hasVault ? await store.getRecoveryInfo() : null;
     _checking = false;
     _notify();
   }
@@ -161,6 +164,39 @@ class VaultController extends ChangeNotifier {
       session: _requireSession(),
       newMasterPassword: newMasterPassword,
     );
+    _notify();
+  }
+
+  Future<void> enableEmailRecovery({
+    required String email,
+    required String userId,
+    required List<int> recoveryKey,
+  }) async {
+    await store.enableEmailRecovery(
+      session: _requireSession(),
+      email: email,
+      userId: userId,
+      recoveryKey: recoveryKey,
+    );
+    _recoveryInfo = VaultRecoveryInfo(
+      email: email.trim().toLowerCase(),
+      userId: userId,
+    );
+    _notify();
+  }
+
+  Future<void> recoverMasterPassword({
+    required String userId,
+    required List<int> recoveryKey,
+    required String newMasterPassword,
+  }) async {
+    _session = await store.recoverWithEmail(
+      userId: userId,
+      recoveryKey: recoveryKey,
+      newMasterPassword: newMasterPassword,
+    );
+    _recoveryInfo = await store.getRecoveryInfo();
+    _selectedEntryId = _firstEntryId(_session!.data.entries);
     _notify();
   }
 

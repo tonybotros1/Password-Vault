@@ -44,6 +44,8 @@ void main() {
           onExportBackup: () {},
           onImportBackup: () {},
           onImportFromChrome: () {},
+          recoveryEmail: null,
+          onLinkRecoveryEmail: () {},
           onChangeMasterPassword: () {},
           onSignOut: () {},
         ),

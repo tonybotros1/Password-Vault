@@ -9,6 +9,8 @@ A local Flutter desktop password manager.
 - The encryption key is derived from the master password with PBKDF2-HMAC-SHA256.
 - The master password is never stored.
 - Backups use the same encrypted `.pwvault` format for moving to another computer.
+- Optional email recovery stores only a random recovery key in a user-protected
+  Supabase row; vault entries remain local. See `EMAIL_RECOVERY_SETUP.md`.
 
 ## Run
 

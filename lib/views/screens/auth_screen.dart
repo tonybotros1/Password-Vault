@@ -11,12 +11,16 @@ class AuthScreen extends StatefulWidget {
     required this.onCreate,
     required this.onUnlock,
     required this.onImportBackup,
+    this.recoveryEmail,
+    this.onForgotPassword,
   });
 
   final bool hasVault;
   final Future<void> Function(String masterPassword) onCreate;
   final Future<void> Function(String masterPassword) onUnlock;
   final Future<void> Function() onImportBackup;
+  final String? recoveryEmail;
+  final VoidCallback? onForgotPassword;
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -140,6 +144,24 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                   label: Text(actionLabel),
                 ),
+                if (!_isCreating &&
+                    widget.recoveryEmail != null &&
+                    widget.onForgotPassword != null) ...[
+                  const SizedBox(height: 6),
+                  TextButton.icon(
+                    onPressed: _busy ? null : widget.onForgotPassword,
+                    icon: const Icon(Icons.mark_email_read_outlined),
+                    label: const Text('Forgot Master Password?'),
+                  ),
+                  Text(
+                    'Recovery link: ${_maskedEmail(widget.recoveryEmail!)}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: AppColors.muted,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
                   onPressed: _busy
@@ -168,5 +190,17 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
       ),
     );
+  }
+
+  String _maskedEmail(String email) {
+    final parts = email.split('@');
+    if (parts.length != 2 || parts.first.isEmpty) {
+      return email;
+    }
+    final name = parts.first;
+    final visible = name.length <= 2
+        ? name.substring(0, 1)
+        : name.substring(0, 2);
+    return '$visible***@${parts.last}';
   }
 }

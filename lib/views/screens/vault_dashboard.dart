@@ -23,6 +23,8 @@ class VaultDashboard extends StatelessWidget {
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onImportFromChrome,
+    required this.recoveryEmail,
+    required this.onLinkRecoveryEmail,
     required this.onChangeMasterPassword,
     required this.onSignOut,
   });
@@ -40,6 +42,8 @@ class VaultDashboard extends StatelessWidget {
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onImportFromChrome;
+  final String? recoveryEmail;
+  final VoidCallback onLinkRecoveryEmail;
   final VoidCallback onChangeMasterPassword;
   final VoidCallback onSignOut;
 
@@ -59,6 +63,8 @@ class VaultDashboard extends StatelessWidget {
                 onExportBackup: onExportBackup,
                 onImportBackup: onImportBackup,
                 onImportFromChrome: onImportFromChrome,
+                recoveryEmail: recoveryEmail,
+                onLinkRecoveryEmail: onLinkRecoveryEmail,
                 onChangeMasterPassword: onChangeMasterPassword,
                 onSignOut: onSignOut,
               ),
@@ -137,6 +143,8 @@ class _VaultHeader extends StatelessWidget {
     required this.onExportBackup,
     required this.onImportBackup,
     required this.onImportFromChrome,
+    required this.recoveryEmail,
+    required this.onLinkRecoveryEmail,
     required this.onChangeMasterPassword,
     required this.onSignOut,
   });
@@ -147,6 +155,8 @@ class _VaultHeader extends StatelessWidget {
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
   final VoidCallback onImportFromChrome;
+  final String? recoveryEmail;
+  final VoidCallback onLinkRecoveryEmail;
   final VoidCallback onChangeMasterPassword;
   final VoidCallback onSignOut;
 
@@ -209,6 +219,15 @@ class _VaultHeader extends StatelessWidget {
           tooltip: 'Import passwords from Google Chrome',
           icon: Icons.password_outlined,
           onPressed: onImportFromChrome,
+        ),
+        HeaderIconButton(
+          tooltip: recoveryEmail == null
+              ? 'Connect recovery email'
+              : 'Recovery email: $recoveryEmail',
+          icon: recoveryEmail == null
+              ? Icons.mark_email_unread_outlined
+              : Icons.mark_email_read_outlined,
+          onPressed: onLinkRecoveryEmail,
         ),
         HeaderIconButton(
           tooltip: 'Change master password',

@@ -37,10 +37,18 @@ class UnlockedVault {
   VaultData data;
 }
 
+class VaultRecoveryInfo {
+  const VaultRecoveryInfo({required this.email, required this.userId});
+
+  final String email;
+  final String userId;
+}
+
 class VaultStore {
   VaultStore({this.baseDirectory, this.iterations = defaultIterations});
 
-  static const int currentVersion = 1;
+  static const int currentVersion = 2;
+  static const int _legacyVersion = 1;
   static const int defaultIterations = 210000;
   static const String _fileName = 'password_vault.pwvault';
   static const String _checkValue = 'password-vault-master-key-check-v1';
@@ -59,20 +67,41 @@ class VaultStore {
     return file.path;
   }
 
+  Future<VaultRecoveryInfo?> getRecoveryInfo() async {
+    final file = await _localVaultFile;
+    if (!await file.exists()) {
+      return null;
+    }
+
+    final recovery = _readEnvelope(await file.readAsString()).recovery;
+    if (recovery == null) {
+      return null;
+    }
+
+    return VaultRecoveryInfo(email: recovery.email, userId: recovery.userId);
+  }
+
+  List<int> createRecoveryKey() => _randomBytes(32);
+
   Future<UnlockedVault> create(String masterPassword) async {
     _requireUsablePassword(masterPassword);
 
     final salt = _randomBytes(24);
-    final secretKey = await _deriveKey(
+    final passwordKey = await _deriveKey(
       masterPassword: masterPassword,
       salt: salt,
       iterations: iterations,
     );
+    final secretKey = SecretKey(_randomBytes(32));
     final emptyData = const VaultData();
     final envelope = VaultEnvelope(
       version: currentVersion,
       iterations: iterations,
       salt: base64Encode(salt),
+      wrappedVaultKey: await _encryptBytes(
+        await secretKey.extractBytes(),
+        passwordKey,
+      ),
       check: await _encryptText(_checkValue, secretKey),
       vault: await _encryptVaultData(emptyData, secretKey),
     );
@@ -161,22 +190,136 @@ class VaultStore {
     _requireUsablePassword(newMasterPassword);
 
     final salt = _randomBytes(24);
-    final secretKey = await _deriveKey(
+    final passwordKey = await _deriveKey(
       masterPassword: newMasterPassword,
       salt: salt,
       iterations: iterations,
     );
+
+    final secretKey = session.envelope.version == _legacyVersion
+        ? SecretKey(_randomBytes(32))
+        : session.secretKey;
 
     session.secretKey = secretKey;
     session.envelope = VaultEnvelope(
       version: currentVersion,
       iterations: iterations,
       salt: base64Encode(salt),
+      wrappedVaultKey: await _encryptBytes(
+        await secretKey.extractBytes(),
+        passwordKey,
+      ),
       check: await _encryptText(_checkValue, secretKey),
       vault: await _encryptVaultData(session.data, secretKey),
+      recovery: session.envelope.recovery,
     );
 
     await save(session);
+  }
+
+  Future<void> enableEmailRecovery({
+    required UnlockedVault session,
+    required String email,
+    required String userId,
+    required List<int> recoveryKey,
+  }) async {
+    if (recoveryKey.length != 32) {
+      throw const VaultStoreException('The email recovery key is not valid.');
+    }
+
+    final previousEnvelope = session.envelope;
+    final vaultKey = previousEnvelope.version == _legacyVersion
+        ? SecretKey(_randomBytes(32))
+        : session.secretKey;
+    final passwordWrappedKey = previousEnvelope.version == _legacyVersion
+        ? await _encryptBytes(await vaultKey.extractBytes(), session.secretKey)
+        : previousEnvelope.wrappedVaultKey!;
+    final normalizedEmail = email.trim().toLowerCase();
+
+    session.secretKey = vaultKey;
+    session.envelope = VaultEnvelope(
+      version: currentVersion,
+      iterations: previousEnvelope.iterations,
+      salt: previousEnvelope.salt,
+      wrappedVaultKey: passwordWrappedKey,
+      check: await _encryptText(_checkValue, vaultKey),
+      vault: await _encryptVaultData(session.data, vaultKey),
+      recovery: VaultRecovery(
+        email: normalizedEmail,
+        userId: userId,
+        wrappedVaultKey: await _encryptBytes(
+          await vaultKey.extractBytes(),
+          SecretKey(recoveryKey),
+        ),
+      ),
+    );
+
+    await save(session);
+  }
+
+  Future<UnlockedVault> recoverWithEmail({
+    required String userId,
+    required List<int> recoveryKey,
+    required String newMasterPassword,
+  }) async {
+    _requireUsablePassword(newMasterPassword);
+    if (recoveryKey.length != 32) {
+      throw const VaultAuthException('The email recovery key is not valid.');
+    }
+
+    final file = await _localVaultFile;
+    if (!await file.exists()) {
+      throw const VaultStoreException('No local vault exists yet.');
+    }
+
+    final envelope = _readEnvelope(await file.readAsString());
+    final recovery = envelope.recovery;
+    if (recovery == null || recovery.userId != userId) {
+      throw const VaultAuthException(
+        'This recovery link does not match this vault.',
+      );
+    }
+
+    try {
+      final vaultKeyBytes = await _decryptPayload(
+        recovery.wrappedVaultKey,
+        SecretKey(recoveryKey),
+      );
+      if (vaultKeyBytes.length != 32) {
+        throw const VaultAuthException('The email recovery key is not valid.');
+      }
+
+      final vaultKey = SecretKey(vaultKeyBytes);
+      final data = await _decryptVaultData(envelope, vaultKey);
+      final salt = _randomBytes(24);
+      final passwordKey = await _deriveKey(
+        masterPassword: newMasterPassword,
+        salt: salt,
+        iterations: iterations,
+      );
+      final updatedEnvelope = VaultEnvelope(
+        version: currentVersion,
+        iterations: iterations,
+        salt: base64Encode(salt),
+        wrappedVaultKey: await _encryptBytes(vaultKeyBytes, passwordKey),
+        check: await _encryptText(_checkValue, vaultKey),
+        vault: await _encryptVaultData(data, vaultKey),
+        recovery: recovery,
+      );
+      final session = UnlockedVault(
+        envelope: updatedEnvelope,
+        secretKey: vaultKey,
+        data: data,
+      );
+      await save(session);
+      return session;
+    } on VaultAuthException {
+      rethrow;
+    } on SecretBoxAuthenticationError {
+      throw const VaultAuthException('The email recovery key is not valid.');
+    } on FormatException {
+      throw const VaultStoreException('The vault file is damaged.');
+    }
   }
 
   Future<File> get _localVaultFile async {
@@ -193,27 +336,33 @@ class VaultStore {
     String masterPassword,
   ) async {
     try {
-      final secretKey = await _deriveKey(
+      final passwordKey = await _deriveKey(
         masterPassword: masterPassword,
         salt: base64Decode(envelope.salt),
         iterations: envelope.iterations,
       );
 
-      final checkBytes = await _decryptPayload(envelope.check, secretKey);
-      if (utf8.decode(checkBytes) != _checkValue) {
-        throw const VaultAuthException('The master password is incorrect.');
+      final SecretKey secretKey;
+      if (envelope.version == _legacyVersion) {
+        secretKey = passwordKey;
+      } else {
+        final wrappedVaultKey = envelope.wrappedVaultKey;
+        if (wrappedVaultKey == null) {
+          throw const VaultStoreException('The vault key is missing.');
+        }
+        final keyBytes = await _decryptPayload(wrappedVaultKey, passwordKey);
+        if (keyBytes.length != 32) {
+          throw const VaultAuthException('The master password is incorrect.');
+        }
+        secretKey = SecretKey(keyBytes);
       }
 
-      final vaultBytes = await _decryptPayload(envelope.vault, secretKey);
-      final decoded = jsonDecode(utf8.decode(vaultBytes));
-      if (decoded is! Map<String, dynamic>) {
-        throw const VaultStoreException('The vault data is not readable.');
-      }
+      final data = await _decryptVaultData(envelope, secretKey);
 
       return UnlockedVault(
         envelope: envelope,
         secretKey: secretKey,
-        data: VaultData.fromJson(decoded),
+        data: data,
       );
     } on VaultAuthException {
       rethrow;
@@ -222,6 +371,24 @@ class VaultStore {
     } on SecretBoxAuthenticationError {
       throw const VaultAuthException('The master password is incorrect.');
     }
+  }
+
+  Future<VaultData> _decryptVaultData(
+    VaultEnvelope envelope,
+    SecretKey secretKey,
+  ) async {
+    final checkBytes = await _decryptPayload(envelope.check, secretKey);
+    if (utf8.decode(checkBytes) != _checkValue) {
+      throw const VaultAuthException('The vault encryption key is incorrect.');
+    }
+
+    final vaultBytes = await _decryptPayload(envelope.vault, secretKey);
+    final decoded = jsonDecode(utf8.decode(vaultBytes));
+    if (decoded is! Map<String, dynamic>) {
+      throw const VaultStoreException('The vault data is not readable.');
+    }
+
+    return VaultData.fromJson(decoded);
   }
 
   Future<SecretKey> _deriveKey({
@@ -247,6 +414,19 @@ class VaultStore {
   ) async {
     final box = await _cipher.encrypt(
       utf8.encode(text),
+      secretKey: secretKey,
+      nonce: _randomBytes(12),
+    );
+
+    return EncryptedPayload.fromSecretBox(box);
+  }
+
+  Future<EncryptedPayload> _encryptBytes(
+    List<int> bytes,
+    SecretKey secretKey,
+  ) async {
+    final box = await _cipher.encrypt(
+      bytes,
       secretKey: secretKey,
       nonce: _randomBytes(12),
     );
@@ -308,6 +488,8 @@ class VaultEnvelope {
     required this.salt,
     required this.check,
     required this.vault,
+    this.wrappedVaultKey,
+    this.recovery,
   });
 
   factory VaultEnvelope.fromJson(Map<String, dynamic> json) {
@@ -316,12 +498,18 @@ class VaultEnvelope {
     final salt = json['salt'];
     final check = json['check'];
     final vault = json['vault'];
+    final wrappedVaultKey = json['wrappedVaultKey'];
+    final recovery = json['recovery'];
 
-    if (version != VaultStore.currentVersion ||
+    if ((version != VaultStore._legacyVersion &&
+            version != VaultStore.currentVersion) ||
         iterations is! int ||
         salt is! String ||
         check is! Map<String, dynamic> ||
-        vault is! Map<String, dynamic>) {
+        vault is! Map<String, dynamic> ||
+        (version == VaultStore.currentVersion &&
+            wrappedVaultKey is! Map<String, dynamic>) ||
+        (recovery != null && recovery is! Map<String, dynamic>)) {
       throw const VaultStoreException('This vault format is not supported.');
     }
 
@@ -331,6 +519,12 @@ class VaultEnvelope {
       salt: salt,
       check: EncryptedPayload.fromJson(check),
       vault: EncryptedPayload.fromJson(vault),
+      wrappedVaultKey: wrappedVaultKey is Map<String, dynamic>
+          ? EncryptedPayload.fromJson(wrappedVaultKey)
+          : null,
+      recovery: recovery is Map<String, dynamic>
+          ? VaultRecovery.fromJson(recovery)
+          : null,
     );
   }
 
@@ -339,6 +533,8 @@ class VaultEnvelope {
   final String salt;
   final EncryptedPayload check;
   final EncryptedPayload vault;
+  final EncryptedPayload? wrappedVaultKey;
+  final VaultRecovery? recovery;
 
   Map<String, dynamic> toJson() {
     return {
@@ -347,6 +543,8 @@ class VaultEnvelope {
       'salt': salt,
       'check': check.toJson(),
       'vault': vault.toJson(),
+      if (wrappedVaultKey != null) 'wrappedVaultKey': wrappedVaultKey!.toJson(),
+      if (recovery != null) 'recovery': recovery!.toJson(),
     };
   }
 
@@ -357,7 +555,46 @@ class VaultEnvelope {
       salt: salt,
       check: check ?? this.check,
       vault: vault ?? this.vault,
+      wrappedVaultKey: wrappedVaultKey,
+      recovery: recovery,
     );
+  }
+}
+
+class VaultRecovery {
+  const VaultRecovery({
+    required this.email,
+    required this.userId,
+    required this.wrappedVaultKey,
+  });
+
+  factory VaultRecovery.fromJson(Map<String, dynamic> json) {
+    final email = json['email'];
+    final userId = json['userId'];
+    final wrappedVaultKey = json['wrappedVaultKey'];
+    if (email is! String ||
+        userId is! String ||
+        wrappedVaultKey is! Map<String, dynamic>) {
+      throw const VaultStoreException('The email recovery data is incomplete.');
+    }
+
+    return VaultRecovery(
+      email: email,
+      userId: userId,
+      wrappedVaultKey: EncryptedPayload.fromJson(wrappedVaultKey),
+    );
+  }
+
+  final String email;
+  final String userId;
+  final EncryptedPayload wrappedVaultKey;
+
+  Map<String, dynamic> toJson() {
+    return {
+      'email': email,
+      'userId': userId,
+      'wrappedVaultKey': wrappedVaultKey.toJson(),
+    };
   }
 }
 
