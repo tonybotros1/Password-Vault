@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/app_colors.dart';
 import '../../models/vault_entry.dart';
@@ -293,11 +294,6 @@ class _EntryListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = [entry.username, entry.email, entry.website].firstWhere(
-      (value) => value.isNotEmpty,
-      orElse: () => 'No username saved',
-    );
-
     return Material(
       color: selected ? AppColors.accentSoft : AppColors.surface,
       borderRadius: BorderRadius.circular(8),
@@ -357,7 +353,7 @@ class _EntryListItem extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                subtitle,
+                entry.notes.isEmpty ? 'No notes saved' : entry.notes,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
@@ -531,6 +527,7 @@ class _EntryDetailsState extends State<_EntryDetails> {
                       label: 'Website',
                       value: entry.website,
                       onCopy: widget.onCopy,
+                      onOpen: () => _openWebsite(entry.website),
                     ),
                   if (entry.accountId.isNotEmpty)
                     _InfoRow(
@@ -589,6 +586,29 @@ class _EntryDetailsState extends State<_EntryDetails> {
 
     return '•' * min(password.length, 16);
   }
+
+  Future<void> _openWebsite(String website) async {
+    final normalizedWebsite = website.contains('://')
+        ? website
+        : 'https://$website';
+    final uri = Uri.tryParse(normalizedWebsite);
+    final isWebLink =
+        uri != null && (uri.scheme == 'http' || uri.scheme == 'https');
+    if (!isWebLink ||
+        !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('This website link could not be opened'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    }
+  }
 }
 
 class _InfoRow extends StatelessWidget {
@@ -599,6 +619,7 @@ class _InfoRow extends StatelessWidget {
     this.copyValue,
     this.trailing,
     this.multiline = false,
+    this.onOpen,
   });
 
   final String label;
@@ -607,6 +628,7 @@ class _InfoRow extends StatelessWidget {
   final Future<void> Function(String label, String value) onCopy;
   final Widget? trailing;
   final bool multiline;
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -634,13 +656,27 @@ class _InfoRow extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: SelectableText(
-              displayValue,
-              style: TextStyle(
-                color: value.isEmpty ? AppColors.muted : AppColors.ink,
-                height: multiline ? 1.35 : 1.2,
-              ),
-            ),
+            child: onOpen == null
+                ? SelectableText(
+                    displayValue,
+                    style: TextStyle(
+                      color: value.isEmpty ? AppColors.muted : AppColors.ink,
+                      height: multiline ? 1.35 : 1.2,
+                    ),
+                  )
+                : InkWell(
+                    onTap: onOpen,
+                    mouseCursor: SystemMouseCursors.click,
+                    child: Text(
+                      displayValue,
+                      style: TextStyle(
+                        color: AppColors.accent,
+                        height: multiline ? 1.35 : 1.2,
+                        decoration: TextDecoration.underline,
+                        decorationColor: AppColors.accent,
+                      ),
+                    ),
+                  ),
           ),
           const SizedBox(width: 8),
           ?trailing,
