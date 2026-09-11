@@ -21,6 +21,7 @@ class VaultDashboard extends StatelessWidget {
     required this.onCopyValue,
     required this.onExportBackup,
     required this.onImportBackup,
+    required this.onImportFromChrome,
     required this.onChangeMasterPassword,
     required this.onSignOut,
   });
@@ -37,6 +38,7 @@ class VaultDashboard extends StatelessWidget {
   final Future<void> Function(String label, String value) onCopyValue;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
+  final VoidCallback onImportFromChrome;
   final VoidCallback onChangeMasterPassword;
   final VoidCallback onSignOut;
 
@@ -55,6 +57,7 @@ class VaultDashboard extends StatelessWidget {
                 onAddEntry: onAddEntry,
                 onExportBackup: onExportBackup,
                 onImportBackup: onImportBackup,
+                onImportFromChrome: onImportFromChrome,
                 onChangeMasterPassword: onChangeMasterPassword,
                 onSignOut: onSignOut,
               ),
@@ -132,6 +135,7 @@ class _VaultHeader extends StatelessWidget {
     required this.onAddEntry,
     required this.onExportBackup,
     required this.onImportBackup,
+    required this.onImportFromChrome,
     required this.onChangeMasterPassword,
     required this.onSignOut,
   });
@@ -141,6 +145,7 @@ class _VaultHeader extends StatelessWidget {
   final VoidCallback onAddEntry;
   final VoidCallback onExportBackup;
   final VoidCallback onImportBackup;
+  final VoidCallback onImportFromChrome;
   final VoidCallback onChangeMasterPassword;
   final VoidCallback onSignOut;
 
@@ -198,6 +203,11 @@ class _VaultHeader extends StatelessWidget {
           tooltip: 'Import encrypted backup',
           icon: Icons.file_open_outlined,
           onPressed: onImportBackup,
+        ),
+        HeaderIconButton(
+          tooltip: 'Import passwords from Google Chrome',
+          icon: Icons.password_outlined,
+          onPressed: onImportFromChrome,
         ),
         HeaderIconButton(
           tooltip: 'Change master password',

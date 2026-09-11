@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/vault_entry.dart';
+import '../services/chrome_password_import.dart';
 import '../services/vault_store.dart';
 
 class VaultController extends ChangeNotifier {
@@ -87,6 +88,41 @@ class VaultController extends ChangeNotifier {
     );
   }
 
+  Future<ChromePasswordImportResult> importChromePasswords(String path) async {
+    final session = _requireSession();
+    final importData = await const ChromePasswordCsvImporter().readFile(path);
+    final existingKeys = session.data.entries.map(_credentialKey).toSet();
+    final entriesToImport = <VaultEntry>[];
+    var skippedDuplicates = 0;
+
+    for (final entry in importData.entries) {
+      if (!existingKeys.add(_credentialKey(entry))) {
+        skippedDuplicates++;
+        continue;
+      }
+      entriesToImport.add(entry);
+    }
+
+    if (entriesToImport.isNotEmpty) {
+      final previousData = session.data;
+      session.data = previousData.addAll(entriesToImport);
+      try {
+        await store.save(session);
+      } on Object {
+        session.data = previousData;
+        rethrow;
+      }
+      _selectedEntryId = entriesToImport.first.id;
+      _notify();
+    }
+
+    return ChromePasswordImportResult(
+      imported: entriesToImport.length,
+      skippedDuplicates: skippedDuplicates,
+      skippedInvalidRows: importData.skippedInvalidRows,
+    );
+  }
+
   Future<void> saveEntry(VaultEntry entry) async {
     final session = _requireSession();
     session.data = session.data.upsert(entry);
@@ -166,6 +202,15 @@ class VaultController extends ChangeNotifier {
     return entries.isEmpty ? null : entries.first.id;
   }
 
+  String _credentialKey(VaultEntry entry) {
+    final website = entry.website.trim().toLowerCase().replaceFirst(
+      RegExp(r'/+$'),
+      '',
+    );
+    final username = entry.username.trim().toLowerCase();
+    return '$website\u0000$username\u0000${entry.password}';
+  }
+
   void _notify() {
     if (!_disposed) {
       notifyListeners();
@@ -184,6 +229,9 @@ String vaultErrorMessage(Object error) {
     return error.message;
   }
   if (error is VaultStoreException) {
+    return error.message;
+  }
+  if (error is ChromePasswordImportException) {
     return error.message;
   }
 

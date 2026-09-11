@@ -245,6 +245,12 @@ class VaultData {
     return VaultData(entries: nextEntries);
   }
 
+  VaultData addAll(Iterable<VaultEntry> newEntries) {
+    final nextEntries = [...entries, ...newEntries];
+    _sortEntries(nextEntries);
+    return VaultData(entries: nextEntries);
+  }
+
   VaultData delete(String id) {
     return VaultData(
       entries: entries.where((entry) => entry.id != id).toList(),

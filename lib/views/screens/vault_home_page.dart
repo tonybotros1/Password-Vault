@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../app/app_colors.dart';
 import '../../controllers/vault_controller.dart';
 import '../../models/vault_entry.dart';
+import '../../services/chrome_password_import.dart';
 import '../../services/vault_store.dart';
 import '../dialogs/change_master_password_dialog.dart';
 import '../dialogs/confirm_dialog.dart';
@@ -103,6 +104,79 @@ class _VaultHomePageState extends State<VaultHomePage> {
     } on Object catch (error) {
       _showMessage(vaultErrorMessage(error));
     }
+  }
+
+  Future<void> _importFromChrome() async {
+    try {
+      await const ChromePasswordManagerLauncher().open();
+    } on Object catch (error) {
+      _showMessage(vaultErrorMessage(error));
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    final selectExport = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Import from Google Chrome'),
+        content: const Text(
+          'In Chrome, select Download file under Export passwords. '
+          'Return here when the CSV has downloaded. The CSV is not encrypted, '
+          'so delete it after the import succeeds.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Select CSV'),
+          ),
+        ],
+      ),
+    );
+    if (selectExport != true || !mounted) {
+      return;
+    }
+
+    final file = await openFile(
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'Chrome passwords', extensions: ['csv']),
+      ],
+    );
+    if (file == null || !mounted) {
+      return;
+    }
+
+    try {
+      final result = await _controller.importChromePasswords(file.path);
+      if (!mounted) {
+        return;
+      }
+      _showMessage(_chromeImportMessage(result));
+    } on Object catch (error) {
+      _showMessage(vaultErrorMessage(error));
+    }
+  }
+
+  String _chromeImportMessage(ChromePasswordImportResult result) {
+    final details = <String>[];
+    if (result.skippedDuplicates > 0) {
+      details.add('${result.skippedDuplicates} duplicate(s) skipped');
+    }
+    if (result.skippedInvalidRows > 0) {
+      details.add('${result.skippedInvalidRows} invalid row(s) skipped');
+    }
+
+    final summary = '${result.imported} password(s) imported';
+    if (details.isEmpty) {
+      return '$summary. Delete the unencrypted CSV.';
+    }
+    return '$summary; ${details.join(', ')}. Delete the unencrypted CSV.';
   }
 
   Future<void> _deleteEntry(VaultEntry entry) async {
@@ -239,6 +313,9 @@ class _VaultHomePageState extends State<VaultHomePage> {
           },
           onImportBackup: () {
             _importBackup();
+          },
+          onImportFromChrome: () {
+            _importFromChrome();
           },
           onChangeMasterPassword: () {
             _changeMasterPassword();
